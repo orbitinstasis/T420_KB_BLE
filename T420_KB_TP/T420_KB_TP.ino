@@ -1,5 +1,6 @@
 /* Copyright 2018 Frank Adams
-   Copyright 2021 Ben Kazemi
+   Copyright 2022
+   Ben Kazemi
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
@@ -33,12 +34,27 @@
                               finalised ugly BLE code with removed scroll lock, media keys and modifiers
                               fixed UK localisation on usb mode and ble mode
                               flipped fn and left ctrl
+  Rev 2.1 - 05 November, 2022 -           
+                                  Added code to exclusivly send BLE or USB codes based solely on the states of physical USB port. 
+                                
+                                Enclosure has been designed and tested, some minor changes to be made but otherwise working well. 
+                                
+                                PCB files were incorrect previously, have uploaded correct files but need to add minor pin changes. 
+                                
+                                Attached Images
+                                
+                                Whole keyboard is balaced in the centre and weighs over a kg. 
+                                
+                                BLE mouse move needs to be smoothed 
+                                
+                                need to add a way to unpair whatever is paired on the keyboard side, currently only possible by doing a factory reset or unpairing from the receiver 
+
+             
 
   NOTE: You need to change the baud rate in Adafruit_BluefruitLE_UART::begin to the same baud rate here
 
   TODO: ADD SOME DELAY WHEN NOT KEYING if i can reduce power consumtption during this delay
   find battery suitable
-  make 3d
 
 
   pin 23 was -Fn
@@ -56,9 +72,10 @@
 #include "Adafruit_BLE.h"
 #include "trackpoint.h"
 
-#define USB_EN                          false   // you can have both enabled at the same time!
-#define BLE_EN                          !USB_EN
-
+//#define USB_EN                          true   // you can have both enabled at the same time!
+//#define BLE_EN                          !USB_EN
+boolean BLE_EN  = 1;
+boolean USB_EN  = 0;
 //BLE defines
 #define AT_COMMAND_MODE                 false
 #define FACTORYRESET_ENABLE             0
@@ -70,7 +87,7 @@
 #define TP_DATA           18   // ps/2 data to trackpoint
 #define TP_CLK            19    // ps/2 clock to trackpoint
 #define TP_RESET          0   // active high trackpoint reset at power up
-#define CAPS_LED          13  // The LED on the Teensy is programmed to blink 
+//#define CAPS_LED          13  // The LED on the Teensy is programmed to blink
 #define HOTKEY            14       // Fn key plus side
 #define TX                31
 #define RX                26
@@ -273,7 +290,7 @@ boolean haveUNloaded = false;
 //
 //************************************Setup*******************************************
 void setup() {
-  //  Serial.begin(BAUD);
+  Serial.begin(BAUD);
   BLUEFRUIT_HWSERIAL_NAME.setTX(TX);
   BLUEFRUIT_HWSERIAL_NAME.setRX(RX);
   /* Initialise the module */
@@ -284,8 +301,8 @@ void setup() {
     error(F("Couldn't find Bluefruit, make sure it's in CoMmanD mode & check wiring?"));
   }
   ble.println("AT+UARTFLOW=on");  ble.waitForOK();
-    ble.println("AT+BAUDRATE=250000");  ble.waitForOK();
-  ble.println("AT+GAPDEVNAME=Orbs Thinky");  ble.waitForOK();
+  ble.println("AT+BAUDRATE=250000");  ble.waitForOK(); //=250000
+  ble.println("AT+GAPDEVNAME=Orbs Thinky");  ble.waitForOK(); //==Orbs Thinky
   ble.println("AT+HWMODELED=3");  ble.waitForOK();
 
   if ( FACTORYRESET_ENABLE )
@@ -310,13 +327,11 @@ void setup() {
   {
     error(F("This sketch requires firmware version " MINIMUM_FIRMWARE_VERSION " or higher!"));
   }
-
   /* Enable HID Service (including Mouse) */
   Serial.println(F("Enable HID Service (including Mouse): "));
   if (! ble.sendCommandCheckOK(F( "AT+BleHIDEn=On"  ))) {
     error(F("Failed to enable HID (firmware >=0.6.6?)"));
   }
-
   /* Add or remove service requires a reset */
   Serial.println(F("Performing a SW reset (service changes require a reset): "));
   if (! ble.reset() ) {
@@ -343,9 +358,35 @@ void setup() {
   go_pu(HOTKEY);    // Pull up the Hotkey plus side for reading
 }
 
+elapsedMillis sinceLastConnCheck;
 //*********************************Main Loop*******************************************
 void loop() {
+  if (sinceLastConnCheck > 2500) {      // "sincePrint" auto-increases
+    sinceLastConnCheck = 0;
+//    Serial.print("USB Enabled:");
+//    Serial.print(USB_EN);
+//    Serial.print("; BLE Enabled: ");
+//    Serial.println(BLE_EN);
+//    ble.print("USB Enabled:");
+//    ble.print(USB_EN);
+//    ble.print("; BLE Enabled: ");
+//    ble.println(BLE_EN);
 
+    if (!bitRead(USB0_OTGSTAT, 5)) //  USB Connected
+    {
+      BLE_EN = false;
+      USB_EN = true;
+//      Serial.print("Bluetooth disabled because USB connected");
+//      ble.println("Bluetooth disabled because USB connected");
+    }
+    else
+    {
+      BLE_EN = true;
+      USB_EN = false;
+//      Serial.print("USB Disconnected, enabling BLE");
+//      ble.print("USB Disconnected, enabling BLE");
+    }
+  }
   if (AT_COMMAND_MODE)
   {
     // *************Deal with manual AT commands**************
@@ -369,8 +410,17 @@ void loop() {
     {
       if (!haveLoaded) // is first press?
       {
-        load_modBLE(modifierBLE[15][0]);
-        sendKeysBLE();
+        if (USB_EN)
+        {
+          load_mod(modifier[15][0]); // function reads which modifier key is pressed and loads it into the appropriate mod_... variable
+          send_mod(); // function sends the state of all modifier keys over usb including the one that just got pressed
+        }
+
+        if (BLE_EN)
+        {
+          load_modBLE(modifierBLE[15][0]);
+          sendKeysBLE();
+        }
         haveLoaded = true;
         haveUNloaded = false;
       }
@@ -379,8 +429,16 @@ void loop() {
     {
       if (!haveUNloaded)
       {
-        clear_modBLE(modifierBLE[15][0]);
-        sendKeysBLE();
+        if (BLE_EN)
+        {
+          clear_modBLE(modifierBLE[15][0]);
+          sendKeysBLE();
+        }
+        if (USB_EN)
+        {
+          clear_mod(modifier[15][0]); // function reads which modifier key was released and loads 0 into the appropriate mod_... variable
+          send_mod(); // function sends all mod's over usb including the one that just released
+        }
         haveUNloaded =  true;
         haveLoaded = false;
       }
@@ -407,10 +465,12 @@ void loop() {
             {
               if (((x == 15) && (y == 0))) // read the physical left ctrl as fn
               {
+                Serial.println("fn pressed");
                 Fn_pressed = LOW; //Save state of key as "pressed"
               }
               else
               {
+                Serial.println("fn not pressed");
                 load_modBLE(modifierBLE[x][y]);
                 sendKeysBLE();
               }
@@ -565,17 +625,14 @@ void loop() {
         if (report.state & (1 << i))
         {
           USBbuttonClicked[i] = true;
-
           if (BLE_EN)
           {
             ble.print("AT+BleHidMouseButton=");
             ble.print(buttonStatesBLE[i]);
             ble.println(",press");
           }
-
           if (USB_EN)
             Mouse.press(buttonStates[i]);
-
         }
         else if (USBbuttonClicked[i])
         {
@@ -603,13 +660,13 @@ void loop() {
         ble.println(_y) ;
       }
     }
-    
+
     // **************************************End of trackpoint routine***********************************
-    
+
     // *******keyboard LEDs
     // Turn on or off the LEDs for Num Lock, Caps Lock, and Scroll Lock based on bit 0, 1, and 2 from the keyboard_leds
     // variable controlled by the USB host computer
-    
+
 
     //    unsigned long currentMillis = millis();
     //
@@ -628,12 +685,12 @@ void loop() {
 
     //  }
 
-    if (keyboard_leds & 1 << 1) { // mask off all bits but D1 and test if set
-      go_0(CAPS_LED); // turn on the Caps Lock LED
-    }
-    else {
-      go_1(CAPS_LED); // turn off the Caps Lock LED
-    }
+    //    if (keyboard_leds & 1 << 1) { // mask off all bits but D1 and test if set
+    //      go_0(CAPS_LED); // turn on the Caps Lock LED
+    //    }
+    //    else {
+    //      go_1(CAPS_LED); // turn off the Caps Lock LED
+    //    }
   }
   // ****************End of main loop
 }
