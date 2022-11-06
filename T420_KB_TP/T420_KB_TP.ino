@@ -34,22 +34,22 @@
                               finalised ugly BLE code with removed scroll lock, media keys and modifiers
                               fixed UK localisation on usb mode and ble mode
                               flipped fn and left ctrl
-  Rev 2.1 - 05 November, 2022 -           
-                                  Added code to exclusivly send BLE or USB codes based solely on the states of physical USB port. 
-                                
-                                Enclosure has been designed and tested, some minor changes to be made but otherwise working well. 
-                                
-                                PCB files were incorrect previously, have uploaded correct files but need to add minor pin changes. 
-                                
-                                Attached Images
-                                
-                                Whole keyboard is balaced in the centre and weighs over a kg. 
-                                
-                                BLE mouse move needs to be smoothed 
-                                
-                                need to add a way to unpair whatever is paired on the keyboard side, currently only possible by doing a factory reset or unpairing from the receiver 
+  Rev 2.1 - 05 November, 2022 -
+                                  Added code to exclusivly send BLE or USB codes based solely on the states of physical USB port.
 
-             
+                                Enclosure has been designed and tested, some minor changes to be made but otherwise working well.
+
+                                PCB files were incorrect previously, have uploaded correct files but need to add minor pin changes.
+
+                                Attached Images
+
+                                Whole keyboard is balaced in the centre and weighs over a kg.
+
+                                BLE mouse move needs to be smoothed
+
+                                need to add a way to unpair whatever is paired on the keyboard side, currently only possible by doing a factory reset or unpairing from the receiver
+
+                                Power LED indicates keyboard power, currently the charging led is inside the keyboard and visible at an angle
 
   NOTE: You need to change the baud rate in Adafruit_BluefruitLE_UART::begin to the same baud rate here
 
@@ -125,7 +125,7 @@ int normal[rows_max][cols_max] = {
   {KEY_F9, KEY_F10, 0, KEY_BACKSPACE, 0, KEY_F5, KEY_ENTER, KEY_SPACE},
   {KEY_INSERT, KEY_F12, 0, 0, 0, 0, 0, KEY_RIGHT},
   {KEY_DELETE, KEY_F11, 0, 0, 0, 0, 0, KEY_DOWN},
-  {KEY_PAGE_UP, KEY_PAGE_DOWN, 0, 0, KEY_MENU, 0, 0, 0}, // removed KEY_MENU to make it "copy" in consumer
+  {KEY_PAGE_UP, KEY_PAGE_DOWN, 0, 0, KEY_MENU, 0, 0, 0}, // removed KEY_MENU to make it "copy" in consumer  last two keys on this row are left and right page
   {KEY_HOME, KEY_END, 0, 0, 0, KEY_UP, KEY_PAUSE, KEY_LEFT},
   {0, KEY_PRINTSCREEN, KEY_NUM_LOCK, 0, 0, 0, 0, 0},
   {0, 0, 0, 0, 0, 0, 0, 0},
@@ -267,6 +267,11 @@ int slot4 = 0;
 int slot5 = 0;
 int slot6 = 0;
 
+boolean isThinkvantagePressed = false;
+boolean isBackPagePressed = false;
+boolean isForwardPagePressed = false;
+boolean isMicMutePressed = false;
+
 String slot1BLE = "00"; //value of 0 means the slot is empty and can be used.
 String slot2BLE = "00";
 String slot3BLE = "00";
@@ -363,28 +368,28 @@ elapsedMillis sinceLastConnCheck;
 void loop() {
   if (sinceLastConnCheck > 2500) {      // "sincePrint" auto-increases
     sinceLastConnCheck = 0;
-//    Serial.print("USB Enabled:");
-//    Serial.print(USB_EN);
-//    Serial.print("; BLE Enabled: ");
-//    Serial.println(BLE_EN);
-//    ble.print("USB Enabled:");
-//    ble.print(USB_EN);
-//    ble.print("; BLE Enabled: ");
-//    ble.println(BLE_EN);
+    //    Serial.print("USB Enabled:");
+    //    Serial.print(USB_EN);
+    //    Serial.print("; BLE Enabled: ");
+    //    Serial.println(BLE_EN);
+    //    ble.print("USB Enabled:");
+    //    ble.print(USB_EN);
+    //    ble.print("; BLE Enabled: ");
+    //    ble.println(BLE_EN);
 
     if (!bitRead(USB0_OTGSTAT, 5)) //  USB Connected
     {
       BLE_EN = false;
       USB_EN = true;
-//      Serial.print("Bluetooth disabled because USB connected");
-//      ble.println("Bluetooth disabled because USB connected");
+      //      Serial.print("Bluetooth disabled because USB connected");
+      //      ble.println("Bluetooth disabled because USB connected");
     }
     else
     {
       BLE_EN = true;
       USB_EN = false;
-//      Serial.print("USB Disconnected, enabling BLE");
-//      ble.print("USB Disconnected, enabling BLE");
+      //      Serial.print("USB Disconnected, enabling BLE");
+      //      ble.print("USB Disconnected, enabling BLE");
     }
   }
   if (AT_COMMAND_MODE)
@@ -449,14 +454,122 @@ void loop() {
     // The status of a key that was just pressed or just released is sent over USB and the state is saved in the old_key matrix.
     // The keyboard keys will read as logic low if they are pressed (negative logic).
     // The old_key matrix also uses negative logic (low=pressed).
-    //
+
+
+
+
+
     for (int x = 0; x < rows_max; x++)
     { // loop thru the rows
       go_0(Row_IO[x]); // Activate Row (send it low)
       delayMicroseconds(10); // give the row time to go low and settle out
       for (int y = 0; y < cols_max; y++)
       { // loop thru the columns
+
         // **********Modifier keys including the Fn special case
+
+
+        // DO THE BLE VERSIONS FOR THESE BITS
+        if (!isForwardPagePressed && (!digitalRead(Col_IO[y]) && ((x == 11) && (y == 7))))
+        {
+          if (USB_EN) {
+            load_mod(KEY_LEFT_ALT );  // forward page
+            send_mod();
+            delay(50);
+            load_slot(KEY_RIGHT);
+            send_normals();
+            delay(5);
+            clear_slot(KEY_RIGHT);
+            send_normals();
+            delay(5);
+            clear_mod(KEY_LEFT_ALT );
+            send_mod();
+            delay(5);
+          }
+          else if (BLE_EN)
+          {
+            load_modBLE(0x04);  // forward page
+            sendKeysBLE();
+            delay(50);
+            load_slot_BLE("4F");
+            sendKeysBLE();
+            delay(5);
+            clear_slot_BLE("4F");
+            sendKeysBLE();
+            delay(5);
+            clear_modBLE(0x04);
+            sendKeysBLE();
+            delay(5);
+          }
+          isForwardPagePressed = true;
+        }
+        else if (isForwardPagePressed && ((x == 11) && (y == 7)) && digitalRead(Col_IO[y]))
+        {
+          isForwardPagePressed = false;
+        }
+
+
+        if (!isBackPagePressed && (!digitalRead(Col_IO[y]) && ((x == 11) && (y == 6))))
+        {
+          if (USB_EN) {
+            load_mod(KEY_LEFT_ALT );  // back page
+            send_mod();
+            delay(50);
+            load_slot(KEY_LEFT);
+            send_normals();
+            delay(5);
+            clear_slot(KEY_LEFT);
+            send_normals();
+            delay(5);
+            clear_mod(KEY_LEFT_ALT );
+            send_mod();
+            delay(5);
+          }
+          else if (BLE_EN)
+          {
+            load_modBLE(0x04);  // forward page
+            sendKeysBLE();
+            delay(50);
+            load_slot_BLE("50");
+            sendKeysBLE();
+            delay(5);
+            clear_slot_BLE("50");
+            sendKeysBLE();
+            delay(5);
+            clear_modBLE(0x04);
+            sendKeysBLE();
+            delay(5);
+          }
+          isBackPagePressed = true;
+        }
+        else if (isBackPagePressed && ((x == 11) && (y == 6)) && digitalRead(Col_IO[y]))
+        {
+          isBackPagePressed = false;
+        }
+
+
+        if (!isThinkvantagePressed && (!digitalRead(Col_IO[y]) && ((x == 10) && (y == 5))))
+        {
+          Serial.println("ThinkVantage hit!");
+          isThinkvantagePressed = true;
+        }
+        else if (isThinkvantagePressed && ((x == 10) && (y == 5)) && digitalRead(Col_IO[y]))
+        {
+          isThinkvantagePressed = false;
+        }
+
+
+        if (!isMicMutePressed && (!digitalRead(Col_IO[y]) && ((x == 10) && (y == 6))))
+        {
+          Serial.println("Mic Mute hit!");
+          isMicMutePressed = true;
+        }
+        else if (isMicMutePressed && ((x == 10) && (y == 6)) && digitalRead(Col_IO[y]))
+        {
+          isMicMutePressed = false;
+        }
+
+
         if (modifier[x][y] != 0)
         { // check if modifier key exists at this location in the array (a non-zero value)
           if (!digitalRead(Col_IO[y]) && (old_key[x][y]))
@@ -468,6 +581,7 @@ void loop() {
                 Serial.println("fn pressed");
                 Fn_pressed = LOW; //Save state of key as "pressed"
               }
+
               else
               {
                 Serial.println("fn not pressed");
@@ -476,7 +590,8 @@ void loop() {
               }
             }
             if (USB_EN)
-            { if (((x == 15) && (y == 0))) // read the physical left ctrl as fn
+            {
+              if (((x == 15) && (y == 0))) // read the physical left ctrl as fn
               {
                 Fn_pressed = LOW; //Save state of key as "pressed"
               }
