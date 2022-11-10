@@ -35,7 +35,7 @@
                               fixed UK localisation on usb mode and ble mode
                               flipped fn and left ctrl
   Rev 2.1 - 05 November, 2022 -
-                                  Added code to exclusivly send BLE or USB codes based solely on the states of physical USB port.
+                                 Added code to exclusivly send BLE or USB codes based solely on the states of physical USB port.
 
                                 Enclosure has been designed and tested, some minor changes to be made but otherwise working well.
 
@@ -53,6 +53,8 @@
 
   NOTE: You need to change the baud rate in Adafruit_BluefruitLE_UART::begin to the same baud rate here
 
+  NOTE: Edited USB_DEX.h product name, man name len, man name
+
   TODO: ADD SOME DELAY WHEN NOT KEYING if i can reduce power consumtption during this delay
   find battery suitable
 
@@ -67,13 +69,11 @@
 
 
 */
-
 #include "Adafruit_BluefruitLE_UART.h"
 #include "Adafruit_BLE.h"
 #include "trackpoint.h"
 
-//#define USB_EN                          true   // you can have both enabled at the same time!
-//#define BLE_EN                          !USB_EN
+
 boolean BLE_EN  = 1;
 boolean USB_EN  = 0;
 //BLE defines
@@ -305,10 +305,10 @@ void setup() {
   {
     error(F("Couldn't find Bluefruit, make sure it's in CoMmanD mode & check wiring?"));
   }
-  ble.println("AT+UARTFLOW=on");  ble.waitForOK();
-  ble.println("AT+BAUDRATE=250000");  ble.waitForOK(); //=250000
-  ble.println("AT+GAPDEVNAME=Orbs Thinky");  ble.waitForOK(); //==Orbs Thinky
-  ble.println("AT+HWMODELED=3");  ble.waitForOK();
+  //  ble.println("AT+UARTFLOW=on");  ble.waitForOK();
+  //  ble.println("AT+BAUDRATE=250000");  ble.waitForOK(); //=250000
+  ble.println("AT+GAPDEVNAME=Orbs BLE Thinky");  ble.waitForOK(); //==Orbs Thinky
+  //  ble.println("AT+HWMODELED=0");  ble.waitForOK();
 
   if ( FACTORYRESET_ENABLE )
   {
@@ -325,8 +325,9 @@ void setup() {
   /* Print Bluefruit information */
   ble.info();
 
-  ble.println("AT+BAUDRATE");  ble.waitForOK();
+  ble.println("AT+GAPGETCONN");  ble.waitForOK();
   ble.println("AT+UARTFLOW");  ble.waitForOK();
+  //  ble.println("AT+BLEPOWERLEVEL=0");  ble.waitForOK();
   // This demo only available for firmware from 0.6.6
   if ( !ble.isVersionAtLeast(MINIMUM_FIRMWARE_VERSION) )
   {
@@ -361,26 +362,24 @@ void setup() {
   }
 
   go_pu(HOTKEY);    // Pull up the Hotkey plus side for reading
+
+
 }
 
+
 elapsedMillis sinceLastConnCheck;
+elapsedMillis  heldthinkvantageTime;;
 //*********************************Main Loop*******************************************
 void loop() {
+
   if (sinceLastConnCheck > 2500) {      // "sincePrint" auto-increases
     sinceLastConnCheck = 0;
-    //    Serial.print("USB Enabled:");
-    //    Serial.print(USB_EN);
-    //    Serial.print("; BLE Enabled: ");
-    //    Serial.println(BLE_EN);
-    //    ble.print("USB Enabled:");
-    //    ble.print(USB_EN);
-    //    ble.print("; BLE Enabled: ");
-    //    ble.println(BLE_EN);
 
     if (!bitRead(USB0_OTGSTAT, 5)) //  USB Connected
     {
       BLE_EN = false;
       USB_EN = true;
+
       //      Serial.print("Bluetooth disabled because USB connected");
       //      ble.println("Bluetooth disabled because USB connected");
     }
@@ -467,9 +466,6 @@ void loop() {
       { // loop thru the columns
 
         // **********Modifier keys including the Fn special case
-
-
-        // DO THE BLE VERSIONS FOR THESE BITS
         if (!isForwardPagePressed && (!digitalRead(Col_IO[y]) && ((x == 11) && (y == 7))))
         {
           if (USB_EN) {
@@ -550,12 +546,18 @@ void loop() {
 
         if (!isThinkvantagePressed && (!digitalRead(Col_IO[y]) && ((x == 10) && (y == 5))))
         {
-          Serial.println("ThinkVantage hit!");
+          heldthinkvantageTime = 0;
           isThinkvantagePressed = true;
         }
         else if (isThinkvantagePressed && ((x == 10) && (y == 5)) && digitalRead(Col_IO[y]))
         {
           isThinkvantagePressed = false;
+          if (heldthinkvantageTime > 3000)
+          {
+            Serial.println("Disconnecting BLE and deleting bonds");
+            ble.println("AT+GAPDISCONNECT");  ble.waitForOK();
+            ble.println("AT+GAPDELBONDS");  ble.waitForOK();
+          }
         }
 
 
@@ -644,7 +646,7 @@ void loop() {
             {
               if (BLE_EN)
               {
-                if (media[x][y] == KEY_MEDIA_VOLUME_INC || media[x][y] == KEY_MEDIA_VOLUME_DEC || media[x][y] == KEY_MEDIA_MUTE )
+                if (media[x][y] == KEY_MEDIA_MUTE )
                 {
                   send_control_HID(mediaBLE[x][y]);
                 }
@@ -656,7 +658,7 @@ void loop() {
               }
               if (USB_EN)
               {
-                if (media[x][y] == KEY_MEDIA_VOLUME_INC || media[x][y] == KEY_MEDIA_VOLUME_DEC || media[x][y] == KEY_MEDIA_MUTE )
+                if (media[x][y] == KEY_MEDIA_MUTE )
                 {
                   Keyboard.press(media[x][y]); // media key is sent using keyboard press function per PJRC
                   delay(5); // delay 5 milliseconds before releasing to make sure it gets sent over USB
@@ -689,6 +691,22 @@ void loop() {
                 delay(5); // delay 5 milliseconds before releasing to make sure it gets sent over USB
                 Keyboard.release(media[x][y]); // send media key release
               }
+            }
+          }
+          else if (!digitalRead(Col_IO[y]) && (media[x][y] == KEY_MEDIA_VOLUME_INC || media[x][y] == KEY_MEDIA_VOLUME_DEC))
+          { // am holding vol buttons?
+            if (BLE_EN)
+            {
+              send_control_HID(mediaBLE[x][y]);
+              delay(50);
+            }
+            if (USB_EN)
+            {
+
+              Keyboard.press(media[x][y]); // media key is sent using keyboard press function per PJRC
+              delay(5); // delay 5 milliseconds before releasing to make sure it gets sent over USB
+              Keyboard.release(media[x][y]); // send media key release
+              delay(50);
             }
           }
           else if (digitalRead(Col_IO[y]) && (!old_key[x][y]))
@@ -733,8 +751,8 @@ void loop() {
 
     if (trackpoint.reportReady())
     {
+      noInterrupts();
       const DataReport& report = trackpoint.getDataReport();
-
       for (uint8_t i = 0; i < sizeof(buttonStatesBLE); ++i)
       {
         if (report.state & (1 << i))
@@ -747,7 +765,9 @@ void loop() {
             ble.println(",press");
           }
           if (USB_EN)
+          {
             Mouse.press(buttonStates[i]);
+          }
         }
         else if (USBbuttonClicked[i])
         {
@@ -758,11 +778,15 @@ void loop() {
             ble.println("0");
           }
           if (USB_EN)
+          {
             Mouse.release(buttonStates[i]);
+          }
         }
       }
       if (USB_EN)
+      {
         Mouse.move(report.x, -report.y);
+      }
       if (BLE_EN)
       {
         char _x [10];
@@ -773,7 +797,9 @@ void loop() {
         ble.print(_x);
         ble.print(",") ;
         ble.println(_y) ;
+
       }
+      interrupts();
     }
 
     // **************************************End of trackpoint routine***********************************
