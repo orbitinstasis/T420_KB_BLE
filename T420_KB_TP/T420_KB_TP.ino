@@ -91,10 +91,11 @@ boolean USB_EN  = 0;
 #define HOTKEY            14       // Fn key plus side
 #define TX                31
 #define RX                26
-#define BAUD              250000
+#define BAUD              1000000
 #define MOUSE_MULTIPLIER  1
+#define BLE_RTS_PIN  23
 
-Adafruit_BluefruitLE_UART ble(BLUEFRUIT_HWSERIAL_NAME, -1, 23);
+Adafruit_BluefruitLE_UART ble(BLUEFRUIT_HWSERIAL_NAME, -1, -1, BLE_RTS_PIN);
 // Set the keyboard row & column size
 const byte rows_max = 16; // sets the number of rows in the matrix
 const byte cols_max = 8; // sets the number of columns in the matrix
@@ -295,7 +296,7 @@ boolean haveUNloaded = false;
 //
 //************************************Setup*******************************************
 void setup() {
-  Serial.begin(BAUD);
+  Serial.begin(230400);
   BLUEFRUIT_HWSERIAL_NAME.setTX(TX);
   BLUEFRUIT_HWSERIAL_NAME.setRX(RX);
   /* Initialise the module */
@@ -305,10 +306,10 @@ void setup() {
   {
     error(F("Couldn't find Bluefruit, make sure it's in CoMmanD mode & check wiring?"));
   }
-  //  ble.println("AT+UARTFLOW=on");  ble.waitForOK();
-  //  ble.println("AT+BAUDRATE=250000");  ble.waitForOK(); //=250000
-  ble.println("AT+GAPDEVNAME=Orbs BLE Thinky");  ble.waitForOK(); //==Orbs Thinky
-  //  ble.println("AT+HWMODELED=0");  ble.waitForOK();
+  ble.println("AT+UARTFLOW=on");  ble.waitForOK();
+  ble.println("AT+BAUDRATE=230400");  ble.waitForOK(); //=115200, 25000 broke after half an hour 
+//  ble.println("AT+GAPDEVNAME=Orbs BLE Thinky");  ble.waitForOK(); //==Orbs Thinky
+  ble.println("AT+HWMODELED=0");  ble.waitForOK();
 
   if ( FACTORYRESET_ENABLE )
   {
